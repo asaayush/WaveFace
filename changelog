@@ -1,0 +1,8 @@
+Maintaining major changes implemented and yet to be implemented here:
+
+17th March, 2021
+--> Pushing Major changes to GitHub.
+--> Created a folder called mmwave_code, which will have all the mmwave processing code.
+--> Three new python files added: CFAR Algorithm, Data Loader, mmWave Procesor
+--> Better code organization is still needed.
+--> Added ChangeLog
