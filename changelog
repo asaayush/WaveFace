@@ -6,3 +6,10 @@ Maintaining major changes implemented and yet to be implemented here:
 --> Three new python files added: CFAR Algorithm, Data Loader, mmWave Procesor
 --> Better code organization is still needed.
 --> Added ChangeLog
+
+<-- Need to implement the Peak Grouping using Filters (much cleaner)
+<-- Need to implement peak grouping along Doppler
+<-- Need to change the SNR based Thresholding Technique
+<-- Angular Map in mmWave_processor needs to be cleaned.
+<-- Need to add docrstrings to each function in mmWave_processor
+

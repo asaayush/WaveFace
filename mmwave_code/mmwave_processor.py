@@ -2,11 +2,16 @@ from tqdm import tqdm
 import numpy as np
 from cfar_algorithm import cell_averaging as cfar_ca
 import matplotlib.pyplot as plt
+from mmwave import dsp
 
 class MMWaveProcessor:
-    def __init__(self, range_resolution, doppler_resolution):
+    def __init__(self, range_resolution, doppler_resolution, range_bins=512, doppler_bins=128, angular_bins=64):
         self.range_resolution = range_resolution
         self.doppler_resolution = doppler_resolution
+        self.range_bins = range_bins
+        self.doppler_bins = doppler_bins
+        self.angle_bins = angular_bins
+
 
     def range_fft(self, adc_data, window = None, axis=-1):
         """Conducting the Range FFT on the ADC Data
@@ -133,30 +138,66 @@ class MMWaveProcessor:
 
         pruned_index = (current_value > prev_values) & (current_value > next_values)
 
-        new_detected_peaks = det_obj_2d_raw[pruned_index]
+        detObj2D = det_obj_2d_raw[pruned_index]
 
         ### PEAK GROUPING USING FILTER APPROACH
-        print(" Inside PEAK OPERATIONS \n")
+        ### Yet to Implement
 
-        current_value = det_matrix[range_index, doppler_index]
+        # More pruning along Doppler
+        # detObj2D = dsp.peak_grouping_along_doppler(det_obj_2d_pruned, det_matrix, doppler_bins)
 
-        print(" Before Pruning: ", len(det_matrix[new_detected_peaks['rangeIdx'], 
-              new_detected_peaks['dopplerIdx']]))
-        print( " After Pruning: ", len(current_value))
-
-
-        
-        # detObj2DRaw = dsp.prune_to_peaks(detObj2DRaw, det_matrix, self.doppler_bins, reserve_neighbor=True)
-
-        # detObj2D = dsp.peak_grouping_along_doppler(det_obj_2d_raw, det_matrix, self.doppler_bins)
-
-        # Code below is used for Range Based Pruning
-        """SNRThresholds2 = np.array([[2, 8], [7, 10], [35, 12]])
+        # Code below is used for Range & SNR Based Pruning
+        SNRThresholds2 = np.array([[1, 10], [10, 25], [30, 30]])
         peakValThresholds2 = np.array([[1, 500], [1, 400], [500, 0]])
         detObj2D = dsp.range_based_pruning(detObj2D, SNRThresholds2, peakValThresholds2, self.range_bins, 0,
-                                           self.range_resolution)"""
+                                           self.range_resolution)
         return detObj2D
+
+
+    def angular_map(self, azimuth_input, det_obj_2d, rx_ant=4):
+        num_det_obj = azimuth_input.shape[1]
+        # Azimuth Angle Estimation
+        azimuth_antenna1 = azimuth_input[:4, :]
+        azimuth_antenna2 = azimuth_input[8:, :]
+        azimuth_antenna_padded = np.zeros(shape=(self.angle_bins, num_det_obj), dtype=np.complex_)
+        azimuth_antenna_padded[:4, :] = azimuth_antenna1
+        azimuth_antenna_padded[4:8, :] = azimuth_antenna2
+        azimuth_fft = np.fft.fft(azimuth_antenna_padded, axis=0)
+        k_max = np.argmax(np.abs(azimuth_fft), axis=0)
+        azimuth_peaks = np.zeros_like(k_max, dtype=np.complex_)
+        for j in range(len(k_max)):
+            azimuth_peaks[j] = azimuth_fft[k_max[j], j]
+
+        k_max[k_max > (self.angle_bins//2) - 1] = k_max[k_max > (self.angle_bins//2) - 1] - self.angle_bins
+        wx = 2 * np.pi / self.angle_bins * k_max
+        x_vector = wx / np.pi
+
+        # Elevation Angle Estimation
+        elevation_antenna = azimuth_input[4:8, :]
+        elevation_antenna_padded = np.zeros(shape=(self.angle_bins, num_det_obj), dtype=np.complex_)
+        elevation_antenna_padded[:rx_ant, :] = elevation_antenna
+        elevation_fft = np.fft.fft(elevation_antenna_padded, axis=0)
+        k_max_2 = np.argmax(np.log2(np.abs(elevation_fft)), axis=0)
+        elevation_peaks = np.zeros_like(k_max_2, dtype=np.complex_)
+        for j in range(len(k_max_2)):
+            elevation_peaks[j] = elevation_fft[k_max_2[j], j]
+
+        wz = np.angle(azimuth_peaks * elevation_peaks.conj() * np.exp(1j * 2 * wx))
+        z_vector = wz / np.pi
+        y_vector = np.sqrt(np.abs(1 - x_vector ** 2 - z_vector ** 2))
+
+        return self.add_range_resolution(x_vector, y_vector, z_vector, det_obj_2d)
     
+
+    def add_range_resolution(self, x, y, z, det_obj_2d):
+        xyz_vec_n = np.zeros((3, x.shape[0]))
+        xyz_vec_n[0] = x * self.range_resolution * det_obj_2d['rangeIdx']
+        xyz_vec_n[1] = y * self.range_resolution * det_obj_2d['rangeIdx']
+        xyz_vec_n[2] = z * self.range_resolution * det_obj_2d['rangeIdx']
+
+        return xyz_vec_n
+
+
     @staticmethod
     def windowing_method(input_data, window_type, axis=0):
         """
@@ -196,3 +237,17 @@ class MMWaveProcessor:
         return output_data
 
 
+    @staticmethod
+    def range_based_filtering(xyz_vector, snr_values, range_threshold, angular_threshold=1):
+        counter = 0
+        new_xyz_vector = np.zeros(xyz_vector.shape)
+        new_snr_values = np.zeros(snr_values.shape)
+        for i in range(xyz_vector.shape[1]):
+            if (xyz_vector[1, i] < range_threshold) and (np.abs(xyz_vector[0, i]) < angular_threshold) \
+                    and (np.abs(xyz_vector[2, i]) < angular_threshold):
+                new_xyz_vector[:, counter] = [xyz_vector[0, i], xyz_vector[1, i], xyz_vector[2, i]]
+                new_snr_values[counter] = snr_values[i]
+                counter += 1
+        new_xyz_vector = new_xyz_vector[:, :counter]
+        new_snr_values = new_snr_values[:counter]
+        return new_xyz_vector, new_snr_values

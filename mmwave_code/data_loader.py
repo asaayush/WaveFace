@@ -59,7 +59,7 @@ class DataLoader:
         self.doppler_resolution = self.calculate_doppler_resolution(self.bandwidth, self.start_freq, self.ramp_end_time,
                                                                     self.idle_time, self.chirp_loops, self.tx_antennas)
         if debug:
-            print("\n Range Resolution: " + str(self.range_resolution) + " cm")
+            print("\n Range Resolution: " + str(self.range_resolution * 1e2) + " cm")
             print("\n Doppler Resolution: " + str(self.doppler_resolution) + " m/s")
             print("\n Bandwidth: " + str(self.bandwidth) + " MHz")
 
@@ -132,12 +132,12 @@ class DataLoader:
             freq_slope (float): The rate of increase of frequency in a chirp.
 
         Returns:
-            range_resolution (float): The gap between each range bin. (cm)
+            range_resolution (float): The gap between each range bin. (m)
             bandwidth (float): How much bandwidth is this configuration taking. (in MHz)
         """
         c = 299792458
         bandwidth = freq_slope * ramp_end_time
-        range_resolution = c / (2 * bandwidth * 1e6) * 1e2
+        range_resolution = c / (2 * bandwidth * 1e6)
 
         return range_resolution, bandwidth
 
@@ -196,10 +196,40 @@ mm_wave_params = {'adc_samples': 1024,
 
 dl = DataLoader(mm_wave_params, debug=True)
 adc_data = dl.get_data("data_model_testing/", "adc_data_new_1", debug_flag=True)
-processor = MMWaveProcessor(dl.range_resolution, dl.doppler_resolution)
+processor = MMWaveProcessor(dl.range_resolution, dl.doppler_resolution, range_bins=dl.range_bins,
+                            doppler_bins=dl.doppler_bins, angular_bins=dl.angle_bins)
+i = 0
 for frame in adc_data:
+    # Compute per-frame Range FFT
     range_fft = processor.range_fft(frame, 'BLACKMAN')
+    # Compute per-frame Doppler FFT
     d_display, aoa_input = processor.doppler_fft(range_fft, 'BLACKMAN', tx_ant=3)
+    # Conduct CFAR Thresholding
     raw_processed_data = processor.cfar_thresholding(d_display, dl.tx_antennas)
-    processor.peak_operations(raw_processed_data, d_display, dl.doppler_bins)
-    break
+    # Conduct Peak Pruning Opeations
+    processed_data = processor.peak_operations(raw_processed_data, d_display, dl.doppler_bins)
+    # Conduct Angle of Arrival Estimation
+    x_y_z_vectors = processor.angular_map(aoa_input[processed_data['rangeIdx'], :, processed_data['dopplerIdx']].T,
+                                          processed_data, rx_ant=dl.rx_antennas)
+    print(" X,Y,Z Vector Shape ", x_y_z_vectors.shape)
+
+    # Final Point Limiter
+    xyz_vector, snr_values = processor.range_based_filtering(x_y_z_vectors, processed_data['SNR'],
+                                                             range_threshold=10.0, angular_threshold=10.0)
+    print(" Modified X,Y,Z Vector Shape ", xyz_vector.shape)
+    # Display
+    fig = plt.figure(figsize=(16, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    img = ax.scatter(x_y_z_vectors[0], x_y_z_vectors[1],
+                     x_y_z_vectors[2], c=processed_data['SNR'], cmap=plt.hot())
+    fig.colorbar(img)
+    ax.set_xlabel('Azimuth (m)')
+    ax.set_ylabel('Range (m)')
+    ax.set_zlabel('Elevation (m)')
+    # ax.set_xlim([-5, 5])
+    # ax.set_zlim([-5, 5])
+    # ax.set_ylim([0, 10])
+    i += 1
+    ax.set_title("Frame " + str(i))
+    plt.show()
+

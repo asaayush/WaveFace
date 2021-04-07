@@ -6,7 +6,7 @@ import numpy as np
 ## This file will contain the primary class definitions for the Point Net
 
 class PointNet:
-    def __init__(self, classes):
+    def __init__(self, classes, input_dims):
         """
         Initializing the Point Net Variables/Constants
         param :
@@ -14,6 +14,7 @@ class PointNet:
         self.t_net_layer_name_cursor = 0
         self.classes = classes
         self.layer_length_list = [3, 64, 64, 64, 64, 128, 1024, 512, 256, classes]
+        self.input_dims = input_dims
         pass
 
     def initialize_model(self):
@@ -22,7 +23,7 @@ class PointNet:
         Returns:
             [type]: [description]
         """
-        point_cloud = layers.Input(shape=(100, 3))
+        point_cloud = layers.Input(shape=(100, self.input_dims))
         trans_point_cloud = self.transform_net(point_cloud, output_channels=self.layer_length_list[0],
                                                network_name='TNetLayer_')
         trans_point_cloud = tf.expand_dims(trans_point_cloud, axis=1)
@@ -147,3 +148,8 @@ class PointNet:
         
         self.t_net_layer_name_cursor += 1
         return x
+
+
+
+k = PointNet(4, 4)
+model = k.initialize_model()

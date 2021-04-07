@@ -6,3 +6,4 @@ data_model_testing
 env_init.sh
 mmwave_code/__pycache__/cfar_algorithm.cpython-38.pyc
 mmwave_code/__pycache__/mmwave_processor.cpython-38.pyc
+random_interview_prep.py
