@@ -1,0 +1,88 @@
+*********************************************************************************************************
+	A]		Without Mask Training & With Mask Testing - 7 People				*
+*********************************************************************************************************
+	*	Range FFT	NPoints		* 	W/O Mask	W Mask		Inference Time	*
+	*					*							*
+1)	*	256		300		*	100		50.19		43ms/step	*
+	*					*							*
+2)	*	256		500		*	100		48.59		61ms/step	*
+	*					*							*
+3) 	*	256		800		*	100		43.62		72ms/step	*
+	*					*							*
+4)	*	512		300		*	100		44.83		22ms/step	*
+	*					*							*
+5)	*	512		500		*	100		44.32		30ms/step	*
+	*					*							*
+6)	*	512		800		*	100		41.65		41ms/step	*
+	*					*							*
+7)	*	1024		300		*							*
+	*					*	DNC						*
+8)	*	1024		500		*							*
+	*					*							*
+9)	*	1024		800		*							*
+	*					*							*
+*********************************************************************************************************
+	B]		Without Mask Training & With Mask Testing - 12 People				*
+*********************************************************************************************************
+	*	Range FFT	NPoints		* 	W/O Mask	W Mask		Inference Time	*
+	*					*							*
+1)	*	256		300		*	100		38.16		26ms/step	*
+	*					*							*
+2)	*	256		500		*	100		43.14		34ms/step	*
+	*					*							*
+3) 	*	256		800		*	100		40.46		47ms/step	*
+	*					*							*
+4)	*	512		300		*	100		41.06		23ms/step	*
+	*					*							*
+5)	*	512		500		*	100		40.65		32ms/step	*
+	*					*							*
+6)	*	512		800		*	100		38.45		61ms/step	*
+	*					*							*
+*********************************************************************************************************
+
+
+UBICOMP - mid-August
+
+31st July - Deadline
+1st July - Get all data and figures
+
+
+
+1) 	Effect of "percentage" of masked data in training set on with mask testing accuracy		Done
+
+2)	X, Y, Z data only. Test New Model on this. No SNR. 256 R-FFT and 300 Points.			
+
+3)	With and Without Frame Aggregation
+
+4)	Confusion Matrix using W Mask Data								Done
+
+5)	Computer Vision classification tasks - What metrics and experiments do they do?
+
+6)	1-P value and Perf Metrics
+
+7)	
+
+
+
+256 Range FFT ---> 500 Points ---> With SNR
+0% ===> 43.57% Accuracy with Mask
+0.1% => 46.12% Accuracy with Mask
+0.25% > 57.11% Accuracy with Mask
+0.5% => 66.30% Accuracy with Mask
+0.75% > 68.26% Accuracy with Mask
+1% ===> 74.19% Accuracy with Mask
+2% ===> 81.10% Accuracy with Mask
+3% ===> 88.28% Accuracy with Mask
+4% ===> 94.79% Accuracy with Mask
+5% ===> 95.52% Accuracy with Mask
+6% ===> 98.92% Accuracy with Mask
+7% ===>	99.10% Accuracy with Mask
+8% ===> 99.63% Accuracy with Mask
+9% ===> 99.15% Accuracy with Mask
+10% ==> 100.0% Accuracy with Mask
+15% ==> 100.0% Accuracy with Mask
+20% ==> 100.0% Accuracy with Mask
+
+256 Range FFT ---> 500 Points ---> Without SNR
+0% ===> 35.04% Accuracy with Mask
+

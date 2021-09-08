@@ -5,25 +5,26 @@ import numpy as np
 
 ## This file will contain the primary class definitions for the Point Net
 
+
 class PointNet:
-    def __init__(self, classes, input_dims):
+    def __init__(self, classes, input_dims=4):
         """
         Initializing the Point Net Variables/Constants
         param :
         """
         self.t_net_layer_name_cursor = 0
         self.classes = classes
-        self.layer_length_list = [3, 64, 64, 64, 64, 128, 1024, 512, 256, classes]
+        self.layer_length_list = [input_dims, 64, 64, 64, 64, 128, 1024, 512, 256, classes]
         self.input_dims = input_dims
         pass
 
-    def initialize_model(self):
+    def initialize_model(self, input_points=100, debug_flag=False):
         """[summary]
 
         Returns:
             [type]: [description]
         """
-        point_cloud = layers.Input(shape=(100, self.input_dims))
+        point_cloud = layers.Input(shape=(input_points, self.input_dims))
         trans_point_cloud = self.transform_net(point_cloud, output_channels=self.layer_length_list[0],
                                                network_name='TNetLayer_')
         trans_point_cloud = tf.expand_dims(trans_point_cloud, axis=1)
@@ -38,12 +39,13 @@ class PointNet:
         trans_features = self.transform_net(features, output_channels=self.layer_length_list[3],
                                             network_name='FNetLayer_')
         trans_features = tf.expand_dims(trans_features, axis=1)
-        
+
         trans_features = self.convolution_operation(trans_features, self.layer_length_list[4], [1, 1])
         trans_features = self.convolution_operation(trans_features, self.layer_length_list[5], [1, 1])
         trans_features = self.convolution_operation(trans_features, self.layer_length_list[6], [1, 1])
+        trans_features = self.convolution_operation(trans_features, self.layer_length_list[6], [1, 1])
+        trans_features = self.convolution_operation(trans_features, self.layer_length_list[6], [1, 1])
 
-        print(trans_features.shape)
         trans_features = tf.squeeze(trans_features, axis=1)
         
         max_pool_output = layers.MaxPool1D((trans_features.shape[1]))(trans_features)
@@ -51,12 +53,17 @@ class PointNet:
 
         fc_output = self.fully_connected_operation(max_pool_output, self.layer_length_list[7], 'Final_FC_Layer_1_')
         fc_output = layers.Dropout(0.7)(fc_output)
-        fc_output = self.fully_connected_operation(fc_output, self.layer_length_list[8], 'Final_FC_Layer_2_')
+        fc_output = self.fully_connected_operation(fc_output, self.layer_length_list[7], 'Final_FC_Layer_2_')
         fc_output = layers.Dropout(0.7)(fc_output)
-        fc_output = layers.Dense(self.layer_length_list[9])(fc_output)
+        fc_output = self.fully_connected_operation(fc_output, self.layer_length_list[7], 'Final_FC_Layer_3_')
+        fc_output = layers.Dropout(0.7)(fc_output)
+        fc_output = self.fully_connected_operation(fc_output, self.layer_length_list[8], 'Final_FC_Layer_4_')
+        fc_output = layers.Dropout(0.7)(fc_output)
+        fc_output = layers.Dense(self.layer_length_list[9], activation="softmax")(fc_output)
 
         K = keras.Model(inputs=point_cloud, outputs=fc_output)
-        K.summary()
+        if debug_flag:
+            K.summary()
         return K
     
     def transform_net(self, point_cloud, output_channels=3, network_name=''):
@@ -113,9 +120,10 @@ class PointNet:
         # Steps for Output Layer
         # Note that instead of individually adding bias, we just initialize them as an 
         # identity matrix.
-        tr_image_processed = layers.Dense(3 * output_channels, 
+        tr_image_processed = layers.Dense(output_channels * output_channels,
                                           kernel_initializer='identity',
-                                          name=network_name+'_Output')(tr_image_processed)
+                                          name=network_name+'_Output',
+                                          kernel_regularizer='l2')(tr_image_processed)
         tr_image_processed = tf.reshape(tr_image_processed, (-1, output_channels, output_channels))
         transformed_point_cloud = tf.matmul(point_cloud, tr_image_processed)
 
@@ -123,13 +131,12 @@ class PointNet:
         # Testing Model
         return transformed_point_cloud
 
-
-    ### Convolution Operation Definition
+    # Convolution Operation Definition
     def convolution_operation(self, input_tensor, filters, kernel_size, padding='valid', net_name=''):
         # Each MLP is a shared weight process, which is best represented by this.
         # Each convolution is also followed by batch norm and relu activation.
         layer_name = net_name + str(self.t_net_layer_name_cursor) + '_MLP'
-        x = layers.Conv2D(filters, kernel_size, name=layer_name)(input_tensor)
+        x = layers.Conv2D(filters, kernel_size, name=layer_name, kernel_regularizer='l2')(input_tensor)
         layer_name = net_name + str(self.t_net_layer_name_cursor) + '_BN'
         x = layers.BatchNormalization(name=layer_name)(x)
         layer_name = net_name + str(self.t_net_layer_name_cursor) + '_ReLU'
@@ -140,7 +147,7 @@ class PointNet:
 
     def fully_connected_operation(self, input_tensor, units, net_name=''):
         layer_name = net_name + str(self.t_net_layer_name_cursor) + '_FC'
-        x = layers.Dense(units, name=layer_name)(input_tensor)
+        x = layers.Dense(units, name=layer_name, kernel_regularizer='l2')(input_tensor)
         layer_name = net_name + str(self.t_net_layer_name_cursor) + '_BN'
         x = layers.BatchNormalization(name=layer_name)(x)
         layer_name = net_name + str(self.t_net_layer_name_cursor) + '_ReLU'
@@ -148,8 +155,3 @@ class PointNet:
         
         self.t_net_layer_name_cursor += 1
         return x
-
-
-
-k = PointNet(4, 4)
-model = k.initialize_model()

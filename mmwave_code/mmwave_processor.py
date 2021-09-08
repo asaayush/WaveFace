@@ -1,6 +1,6 @@
 from tqdm import tqdm
 import numpy as np
-from cfar_algorithm import cell_averaging as cfar_ca
+from mmwave_code.cfar_algorithm import cell_averaging as cfar_ca
 import matplotlib.pyplot as plt
 from mmwave import dsp
 
@@ -34,7 +34,7 @@ class MMWaveProcessor:
         else:
             windowed_data = adc_data
 
-        radar_cube = np.fft.fft(windowed_data, axis=axis)
+        radar_cube = np.fft.fft(windowed_data, n=self.range_bins, axis=axis)
 
         return radar_cube
 
@@ -100,7 +100,7 @@ class MMWaveProcessor:
                                                                  arr=det_matrix,
                                                                  lower_bound=2.5,
                                                                  guard_len=1,
-                                                                 training_len=3)
+                                                                 training_len=5)
         threshold_doppler, noise_floor_doppler = threshold_doppler.T, noise_floor_doppler.T
         det_doppler_mask = (det_matrix > threshold_doppler)
         det_range_mask = (det_matrix > threshold_range)
@@ -118,11 +118,9 @@ class MMWaveProcessor:
         detObj2DRaw['peakVal'] = peak_values.flatten()
         detObj2DRaw['SNR'] = snr.flatten()
         return detObj2DRaw
-        
-    
+
     def peak_operations(self, det_obj_2d_raw, det_matrix, doppler_bins):
-        
-        ### PEAK GROUPING USING NAIVE APPROACH
+        # PEAK GROUPING USING NAIVE APPROACH
         range_index = det_obj_2d_raw['rangeIdx']
         doppler_index = det_obj_2d_raw['dopplerIdx']
 
@@ -140,19 +138,18 @@ class MMWaveProcessor:
 
         detObj2D = det_obj_2d_raw[pruned_index]
 
-        ### PEAK GROUPING USING FILTER APPROACH
-        ### Yet to Implement
+        # PEAK GROUPING USING FILTER APPROACH
+        # Yet to Implement
 
         # More pruning along Doppler
         # detObj2D = dsp.peak_grouping_along_doppler(det_obj_2d_pruned, det_matrix, doppler_bins)
 
         # Code below is used for Range & SNR Based Pruning
-        SNRThresholds2 = np.array([[1, 10], [10, 25], [30, 30]])
+        SNRThresholds2 = np.array([[0, 40], [5, 50], [30, 30]])
         peakValThresholds2 = np.array([[1, 500], [1, 400], [500, 0]])
         detObj2D = dsp.range_based_pruning(detObj2D, SNRThresholds2, peakValThresholds2, self.range_bins, 0,
                                            self.range_resolution)
         return detObj2D
-
 
     def angular_map(self, azimuth_input, det_obj_2d, rx_ant=4):
         num_det_obj = azimuth_input.shape[1]

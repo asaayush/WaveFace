@@ -1,9 +1,11 @@
 import numpy as np
 from tqdm import tqdm
 import os
-from mmwave_processor import MMWaveProcessor
+from mmwave_code.mmwave_processor import MMWaveProcessor
 import matplotlib.pyplot as plt
 from time import time
+from mmwave_code.display_utils import display_3d_image
+
 
 class DataLoader:
     def __init__(self, params, debug=False):
@@ -79,6 +81,10 @@ class DataLoader:
 
         # Check if multiple files exists
         multiple_file_flag, num_files = check_multiple_files(directory, bin_file_name, debug_flag)
+        # Initializing ADC Data
+        adc_data = np.zeros(shape=(self.frames * self.chirps_per_frame * self.adc_samples, self.lvds_lanes),
+                            dtype=complex)
+        lengths = []
 
         # Load the files based on whether a single or multiple files exist
         for i in range(num_files):
@@ -91,28 +97,40 @@ class DataLoader:
             file = open(file_name, mode='rb')
 
             # Append if 2nd file or higher
-            if i == 0:
-                init_data = np.fromfile(file, dtype=np.int16)
+            init_data = np.fromfile(file, dtype=np.int16)
+            """if i == 0:
+                
             else:
-                init_data = np.append(init_data, np.fromfile(file, dtype=np.int16))
+                init_data = np.append(init_data, np.fromfile(file, dtype=np.int16))"""
 
-        print(" Convert ADC Data into Usable Form")
-        # Reshape Data based on LVDS Lanes
-        init_data = np.reshape(init_data, newshape=(-1, self.lvds_lanes*2))
-        # Initializing ADC Data
-        adc_data = np.zeros(shape=(self.frames * self.chirps_per_frame * self.adc_samples, self.lvds_lanes),
-                            dtype=complex)
-        # Converting I-Q data to Complex Data
-        if debug_flag:
-            print(" Converting IQ Data to Complex Form")
-            t1 = time()
-        adc_data[:, 0] = init_data[:, 0] + (1j * init_data[:, 4])
-        adc_data[:, 1] = init_data[:, 1] + (1j * init_data[:, 5])
-        adc_data[:, 2] = init_data[:, 2] + (1j * init_data[:, 6])
-        adc_data[:, 3] = init_data[:, 3] + (1j * init_data[:, 7])
-        if debug_flag:
-            t2 = time() - t1
-            print(" Time Taken is: " + str(t2) + " s")
+            # Reshape Data based on LVDS Lanes
+            init_data = np.reshape(init_data, newshape=(-1, self.lvds_lanes * 2))
+
+            # Converting I-Q data to Complex Data
+            if debug_flag:
+                print(" Converting IQ Data to Complex Form")
+                t1 = time()
+
+            temp_adc_data = np.zeros(shape=(init_data.shape[0], 4), dtype=complex)
+            temp_adc_data[:, 0] = init_data[:, 0] + (1j * init_data[:, 4])
+            temp_adc_data[:, 1] = init_data[:, 1] + (1j * init_data[:, 5])
+            temp_adc_data[:, 2] = init_data[:, 2] + (1j * init_data[:, 6])
+            temp_adc_data[:, 3] = init_data[:, 3] + (1j * init_data[:, 7])
+
+            if debug_flag:
+                t2 = time() - t1
+                print(" Time Taken is: " + str(t2) + " s")
+            if i == 0:
+                lengths.append(init_data.shape[0])
+            else:
+                new_length = lengths[i-1] + init_data.shape[0]
+                lengths.append(new_length)
+
+            if i == 0:
+                adc_data[:lengths[0]] = temp_adc_data
+            else:
+                adc_data[lengths[i-1]:lengths[i]] = temp_adc_data
+
         # Reorganizing ADC Data
         adc_data = np.ravel(adc_data)
         adc_data = np.reshape(adc_data, newshape=(self.frames, self.chirps_per_frame,
@@ -165,71 +183,76 @@ class DataLoader:
         return doppler_resolution
 
 
-mm_wave_params = {'adc_samples': 256,
-                  'adc_sample_rate': 4000,
-                  'freq_slope': 45.48,
-                  'real_only': False,
-                  'frames': 400,
-                  'chirp_loops': 128,
-                  'rx_ant': 4,
-                  'tx_ant': 3,
-                  'ramp_end_time': 87.73,
-                  'idle_time': 7,
-                  'start_freq': 77,
-                  'lvds_lanes': 4,
-                  'adc_start_time': 6.4}
+def get_points(adc_data, data_processor, data_loader, aggregate=4, num_points=100, save=False, with_snr=True):
+    # Final Output should be in the shape (frames, x, y, z, snr)
+    if with_snr:
+        final_points = np.zeros((adc_data.shape[0], num_points, 4))
+    else:
+        final_points = np.zeros((adc_data.shape[0], num_points, 3))
+    all_frame_points = []
 
-mm_wave_params = {'adc_samples': 1024,
-                  'adc_sample_rate': 4500,
-                  'freq_slope': 14.339,
-                  'real_only': False,
-                  'frames': 1000,
-                  'chirp_loops': 30,
-                  'rx_ant': 4,
-                  'tx_ant': 3,
-                  'angle_bins': 64,
-                  'ramp_end_time': 277.73,
-                  'idle_time': 100,
-                  'start_freq': 77,
-                  'lvds_lanes': 4,
-                  'adc_start_time': 6.4}
+    for frame_index, frame in enumerate(tqdm(adc_data)):
+        # Compute per-frame Range FFT
+        range_fft = data_processor.range_fft(frame, 'BLACKMAN')
+        # Compute per-frame Doppler FFT
+        d_display, aoa_input = data_processor.doppler_fft(range_fft, 'BLACKMAN', tx_ant=3)
+        # Conduct CFAR Thresholding
+        raw_processed_data = data_processor.cfar_thresholding(d_display, data_loader.tx_antennas)
+        # Conduct Peak Pruning Opeations
+        processed_data = data_processor.peak_operations(raw_processed_data, d_display, data_loader.doppler_bins)
+        # Conduct Angle of Arrival Estimation
+        x_y_z_vectors = data_processor.angular_map(aoa_input[processed_data['rangeIdx'], :,
+                                                             processed_data['dopplerIdx']].T,
+                                                   processed_data, rx_ant=data_loader.rx_antennas)
+        # Range Based Point Limiting
+        xyz_vector, snr_values = data_processor.range_based_filtering(x_y_z_vectors, processed_data['SNR'],
+                                                                      range_threshold=20.0, angular_threshold=20.0)
 
-dl = DataLoader(mm_wave_params, debug=True)
-adc_data = dl.get_data("data_model_testing/", "adc_data_new_1", debug_flag=True)
-processor = MMWaveProcessor(dl.range_resolution, dl.doppler_resolution, range_bins=dl.range_bins,
-                            doppler_bins=dl.doppler_bins, angular_bins=dl.angle_bins)
-i = 0
-for frame in adc_data:
-    # Compute per-frame Range FFT
-    range_fft = processor.range_fft(frame, 'BLACKMAN')
-    # Compute per-frame Doppler FFT
-    d_display, aoa_input = processor.doppler_fft(range_fft, 'BLACKMAN', tx_ant=3)
-    # Conduct CFAR Thresholding
-    raw_processed_data = processor.cfar_thresholding(d_display, dl.tx_antennas)
-    # Conduct Peak Pruning Opeations
-    processed_data = processor.peak_operations(raw_processed_data, d_display, dl.doppler_bins)
-    # Conduct Angle of Arrival Estimation
-    x_y_z_vectors = processor.angular_map(aoa_input[processed_data['rangeIdx'], :, processed_data['dopplerIdx']].T,
-                                          processed_data, rx_ant=dl.rx_antennas)
-    print(" X,Y,Z Vector Shape ", x_y_z_vectors.shape)
+        # Combine Points with SNR (x, y, z, SNR)
+        if with_snr:
+            frame_points = np.zeros((4, xyz_vector.shape[1]))
+            frame_points[:3, :] = xyz_vector
+            frame_points[3, :] = snr_values
+        else:
+            frame_points = np.zeros((3, xyz_vector.shape[1]))
+            frame_points[:3, :] = xyz_vector
 
-    # Final Point Limiter
-    xyz_vector, snr_values = processor.range_based_filtering(x_y_z_vectors, processed_data['SNR'],
-                                                             range_threshold=10.0, angular_threshold=10.0)
-    print(" Modified X,Y,Z Vector Shape ", xyz_vector.shape)
-    # Display
-    fig = plt.figure(figsize=(16, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    img = ax.scatter(x_y_z_vectors[0], x_y_z_vectors[1],
-                     x_y_z_vectors[2], c=processed_data['SNR'], cmap=plt.hot())
-    fig.colorbar(img)
-    ax.set_xlabel('Azimuth (m)')
-    ax.set_ylabel('Range (m)')
-    ax.set_zlabel('Elevation (m)')
-    # ax.set_xlim([-5, 5])
-    # ax.set_zlim([-5, 5])
-    # ax.set_ylim([0, 10])
-    i += 1
-    ax.set_title("Frame " + str(i))
-    plt.show()
+        all_frame_points.append(frame_points)
+
+        # Aggregate Points
+        if frame_index > aggregate-1:
+            aggregated_points = []
+            for i in range(aggregate):
+                if i == 0:
+                    # print(all_frame_points[frame_index])
+                    aggregated_points = all_frame_points[frame_index]
+                else:
+                    aggregated_points = np.append(aggregated_points, all_frame_points[frame_index - i], axis=1)
+            # print("Aggregated Frame Length :", aggregated_points.shape)
+        else:
+            continue
+
+        display_3d_image(frame_points, "Frame "+str(frame_index))
+
+        # Final Point Limiter
+        # Important Assumption here is that the aggregated points ARE GREATER THAN REQUIRED POINTS!
+        # First Sort the Data Based on SNR Values
+        snr_val = aggregated_points.T[:, 3]
+        sorted_snr_val = np.sort(snr_val)[-num_points:]
+        # Combine Data and Store them!
+        for i, element in enumerate(sorted_snr_val):
+            indices = np.argwhere(aggregated_points == element)[0][1]
+            final_points[frame_index, i, :] = aggregated_points[:, indices]
+
+    final_points = final_points[aggregate:, :, :]
+    if save:
+        file_name = input("\nEnter File Name: ")
+        np.save(file_name, final_points)
+        print("\nSaved Data as NumPy File.")
+
+    return final_points
+
+
+# Display
+
 
